@@ -569,6 +569,7 @@
         let ownedDrafts = {};
         let ownedSaving = {};
         let publicUniqueParticipants = 0;
+        let publicUniqueUnits = 0;
 
         async function publicApi(path, opts) {
             const r = await fetch(API_BASE + path, {
@@ -610,6 +611,7 @@
                 })));
                 totalPages = Number((data.pagination && data.pagination.totalPages) || 1);
                 uniqueParticipants = Number((data.stats && data.stats.uniqueParticipants) || uniqueParticipants || 0);
+                publicUniqueUnits = Number((data.stats && data.stats.uniqueUnits) || publicUniqueUnits || 0);
                 page += 1;
             }
             items = all;
@@ -662,7 +664,7 @@
         }
 
         function isDraftDirty(id, content) {
-            return String(ownedDrafts[id] ?? content ?? "") !== String(content ?? "");
+            return String(ownedDrafts[id] ? ? content ? ? "") !== String(content ? ? "");
         }
 
         function normalize(v) {
@@ -678,8 +680,9 @@
         }
 
         function uniqueUnitCount(src) {
+            if (!src) return publicUniqueUnits;
             const s = new Set();
-            (src || items).forEach(i => (i.units || []).forEach(u => s.add(normalize(u))));
+            src.forEach(i => (i.units || []).forEach(u => s.add(normalize(u))));
             return s.size
         }
 

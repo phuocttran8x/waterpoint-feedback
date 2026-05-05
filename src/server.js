@@ -549,6 +549,7 @@ app.get("/api/feedback", async(req, res, next) => {
             },
             stats: {
                 uniqueParticipants: computeUniqueParticipants(participantsRows),
+                uniqueUnits: new Set(participantsRows.flatMap(r => (r.units || []).map(u => String(u).trim().toLowerCase()))).size,
             },
         });
     } catch (error) {

@@ -233,6 +233,15 @@ function inMemoryMatchesSearch(item, search) {
     return normalizeValue(item.content).includes(normalizeValue(search));
 }
 
+function hasOwnershipMatch(existing, ownerName, ownerUnits) {
+    const submittedUnitSet = new Set(ownerUnits.map((unit) => normalizeValue(unit)));
+    const hasMatchingUnit = (existing.units || []).some((unit) =>
+        submittedUnitSet.has(normalizeValue(unit))
+    );
+    const hasMatchingName = normalizeValue(existing.name) === normalizeValue(ownerName);
+    return hasMatchingName && hasMatchingUnit;
+}
+
 async function createFeedbackRecord(payload) {
     if (hasSupabase) {
         const { data, error } = await supabase
@@ -320,6 +329,26 @@ async function findFeedbackForOwnership(feedbackId) {
     }
 
     return { id: found.id, name: found.name, units: found.units };
+}
+
+async function listOwnedFeedbackByOwner(ownerName, ownerUnits) {
+    if (hasSupabase) {
+        const { data, error } = await supabase
+            .from("feedbacks")
+            .select("id, name, units, content, created_at, updated_at")
+            .overlaps("units", ownerUnits)
+            .order("updated_at", { ascending: false });
+
+        if (error) {
+            throw error;
+        }
+
+        return (data || []).filter((row) => hasOwnershipMatch(row, ownerName, ownerUnits));
+    }
+
+    return inMemoryFeedbacks
+        .filter((row) => hasOwnershipMatch(row, ownerName, ownerUnits))
+        .sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
 }
 
 async function updateFeedbackContent(feedbackId, content) {
@@ -484,6 +513,32 @@ app.get("/api/feedback", async(req, res, next) => {
     }
 });
 
+app.post("/api/feedback/owned", async(req, res, next) => {
+    try {
+        const ownerName = String(req.body.name || "").trim();
+        const ownerUnits = Array.isArray(req.body.units) ? normalizeUnits(req.body.units) : [];
+
+        const errors = [];
+        if (!ownerName) {
+            errors.push("name is required for ownership validation");
+        }
+        if (ownerUnits.length === 0) {
+            errors.push("units must contain at least one unit for ownership validation");
+        }
+        if (errors.length > 0) {
+            return res.status(400).json({ errors });
+        }
+
+        const ownedRows = await listOwnedFeedbackByOwner(ownerName, ownerUnits);
+        return res.json({
+            items: ownedRows.map(mapPublicFeedback),
+            totalItems: ownedRows.length,
+        });
+    } catch (error) {
+        return next(error);
+    }
+});
+
 app.put("/api/feedback/:id", async(req, res, next) => {
     try {
         const feedbackId = String(req.params.id || "").trim();
@@ -514,13 +569,7 @@ app.put("/api/feedback/:id", async(req, res, next) => {
             return res.status(404).json({ error: "Feedback not found" });
         }
 
-        const submittedUnitSet = new Set(ownerUnits.map((unit) => normalizeValue(unit)));
-        const hasMatchingUnit = (existing.units || []).some((unit) =>
-            submittedUnitSet.has(normalizeValue(unit))
-        );
-        const hasMatchingName = normalizeValue(existing.name) === normalizeValue(ownerName);
-
-        if (!hasMatchingName || !hasMatchingUnit) {
+        if (!hasOwnershipMatch(existing, ownerName, ownerUnits)) {
             return res.status(403).json({ error: "Ownership validation failed" });
         }
 

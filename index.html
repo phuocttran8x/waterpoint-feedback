@@ -664,7 +664,7 @@
         }
 
         function isDraftDirty(id, content) {
-            return String(ownedDrafts[id] ?? content ?? "") !== String(content ?? "");
+            return String(ownedDrafts[id] ? ? content ? ? "") !== String(content ? ? "");
         }
 
         function normalize(v) {
@@ -686,13 +686,28 @@
             return s.size
         }
 
+        function formatDate(iso) {
+            if (!iso) return "";
+            const d = new Date(iso);
+            if (isNaN(d)) return String(iso);
+            return d.toLocaleString("vi-VN", {
+                day: "2-digit",
+                month: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+                timeZone: "Asia/Ho_Chi_Minh"
+            });
+        }
+
         function formatNow() {
             return new Date().toLocaleString("vi-VN", {
                 day: "2-digit",
                 month: "2-digit",
                 year: "numeric",
                 hour: "2-digit",
-                minute: "2-digit"
+                minute: "2-digit",
+                timeZone: "Asia/Ho_Chi_Minh"
             })
         }
 
@@ -758,8 +773,8 @@
                     <td class="td-name">${escapeHtml(row.name)}</td>
                     <td class="td-units">${units}</td>
                     <td class="td-content">${escapeHtml(row.content)}</td>
-                    <td class="td-date">${escapeHtml(row.createdAt)}</td>
-                    <td class="td-date">${escapeHtml(row.updatedAt)}</td>
+                    <td class="td-date">${formatDate(row.createdAt)}</td>
+                    <td class="td-date">${formatDate(row.updatedAt)}</td>
                 </tr>`;
             }).join("");
             return `<div class="admin-table-wrap"><table class="admin-table">
@@ -831,7 +846,7 @@
         function cardHtml(item) {
             const isLong = item.content.length > 180;
             const text = !isLong || expanded[item.id] ? item.content : item.content.slice(0, 180) + "...";
-            return `<article class="card"><div class="badges"><span class="badge">${escapeHtml(item.id)}</span></div><div class="meta">Ngày đăng: ${escapeHtml(item.createdAt)} - Cập nhật: ${escapeHtml(item.updatedAt)}</div><div class="privacy">Người gửi: <b>Đã ẩn</b> - Mã căn: <b>Đã ẩn</b></div><div class="content">${escapeHtml(text)}</div>${isLong?`<button onclick="toggleExpand('${item.id}')">${expanded[item.id]?"Ẩn bớt":"Xem thêm"}</button>`:""}</article>`}
+            return `<article class="card"><div class="badges"><span class="badge">${escapeHtml(item.id)}</span></div><div class="meta">Ngày đăng: ${formatDate(item.createdAt)} - Cập nhật: ${formatDate(item.updatedAt)}</div><div class="privacy">Người gửi: <b>Đã ẩn</b> - Mã căn: <b>Đã ẩn</b></div><div class="content">${escapeHtml(text)}</div>${isLong?`<button onclick="toggleExpand('${item.id}')">${expanded[item.id]?"Ẩn bớt":"Xem thêm"}</button>`:""}</article>`}
         function renderOwned(){
             const name=normalize(document.getElementById("ownerNameInput").value);
             const unit=normalize(document.getElementById("ownerUnitInput").value);

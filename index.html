@@ -560,7 +560,7 @@
     <script>
         const STORAGE_KEY = "waterpoint_feedback_offline_admin_hidden_v4";
         const MIGRATION_FLAG_KEY = "waterpoint_feedback_seeded_to_backend_v1";
-        const API_BASE = window.API_BASE || "http://localhost:4000";
+        const API_BASE = window.API_BASE || (["localhost", "127.0.0.1"].includes(window.location.hostname) ? "http://localhost:4000" : "https://waterpoint-feedback.onrender.com");
         const pageSize = 5;
         let currentPage = 1;
         let expanded = {};

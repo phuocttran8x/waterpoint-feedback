@@ -558,50 +558,14 @@
         </section>
     </main>
     <script>
-        const STORAGE_KEY = "waterpoint_feedback_offline_admin_hidden_v4";
-        const MIGRATION_FLAG_KEY = "waterpoint_feedback_seeded_to_backend_v1";
         const API_BASE = window.API_BASE || (["localhost", "127.0.0.1"].includes(window.location.hostname) ? "http://localhost:4000" : "https://waterpoint-feedback.onrender.com");
         const pageSize = 5;
         let currentPage = 1;
         let expanded = {};
         let isAdminUnlocked = false;
         let adminToken = "";
-        const seedData = [{
-            id: "WP-0001",
-            name: "Nguyễn Văn An",
-            units: ["AQ1-1205", "RV2-08-12"],
-            content: "Đề nghị chủ đầu tư bổ sung thêm cây xanh và khu vực ghế ngồi tại công viên ven sông.\n\nHiện tại cuối tuần cư dân ra khá đông nhưng thiếu khu vực nghỉ chân, đặc biệt là gia đình có trẻ nhỏ và người lớn tuổi.",
-            createdAt: "05/05/2026 09:20",
-            updatedAt: "05/05/2026 09:20"
-        }, {
-            id: "WP-0002",
-            name: "Trần Minh Hương",
-            units: ["TA2-0311"],
-            content: "Cần tăng cường kiểm soát xe lạ ra vào khu vào buổi tối.\nMột số thời điểm bảo vệ không kiểm tra kỹ thông tin khách đến thăm.",
-            createdAt: "05/05/2026 10:05",
-            updatedAt: "05/05/2026 10:05"
-        }, {
-            id: "WP-0003",
-            name: "Lê Quốc Bảo",
-            units: ["RV1-15-06", "AQ2-0908"],
-            content: "Mong ban quản lý công khai rõ hơn các khoản thu chi hằng tháng, đặc biệt là chi phí bảo trì cảnh quan, vệ sinh khu công cộng và chi phí vận hành tiện ích chung.",
-            createdAt: "05/05/2026 11:12",
-            updatedAt: "05/05/2026 11:12"
-        }];
-        let items = loadItems();
-
-        function loadItems() {
-            try {
-                const raw = localStorage.getItem(STORAGE_KEY);
-                return raw ? JSON.parse(raw) : seedData.slice()
-            } catch {
-                return seedData.slice()
-            }
-        }
-
-        function saveItems() {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
-        }
+        let items = [];
+        let publicUniqueParticipants = 0;
 
         async function publicApi(path, opts) {
             const r = await fetch(API_BASE + path, {
@@ -627,39 +591,30 @@
             return data.feedback || {};
         }
 
+        async function loadPublicFromBackend() {
+            const all = [];
+            let page = 1;
+            let totalPages = 1;
+            let uniqueParticipants = 0;
+            while (page <= totalPages) {
+                const data = await publicApi(`/api/feedback?page=${page}&pageSize=100`);
+                const pageItems = Array.isArray(data.items) ? data.items : [];
+                all.push(...pageItems.map((i) => ({
+                    id: i.id,
+                    content: i.content,
+                    createdAt: i.createdAt,
+                    updatedAt: i.updatedAt,
+                })));
+                totalPages = Number((data.pagination && data.pagination.totalPages) || 1);
+                uniqueParticipants = Number((data.stats && data.stats.uniqueParticipants) || uniqueParticipants || 0);
+                page += 1;
+            }
+            items = all;
+            publicUniqueParticipants = uniqueParticipants;
+        }
+
         async function ensureBackendHasInitialData() {
-            const localItems = loadItems();
-            if (!localItems.length) {
-                localStorage.setItem(MIGRATION_FLAG_KEY, "1");
-                return;
-            }
-
-            try {
-                const checkResp = await fetch(API_BASE + "/api/feedback?page=1&pageSize=1");
-                if (!checkResp.ok) return;
-                const checkData = await checkResp.json();
-                const totalItems = Number((checkData && checkData.pagination && checkData.pagination.totalItems) || 0);
-                // If backend already has records, skip seeding to avoid duplicates.
-                if (totalItems > 0) {
-                    localStorage.setItem(MIGRATION_FLAG_KEY, "1");
-                    return;
-                }
-
-                for (const item of localItems) {
-                    const name = String(item && item.name || "").trim();
-                    const units = Array.isArray(item && item.units) ? item.units : [];
-                    const content = String(item && item.content || "").trim();
-                    if (!name || !units.length || !content) continue;
-                    await submitFeedbackToBackend({
-                        name,
-                        units,
-                        content
-                    });
-                }
-                localStorage.setItem(MIGRATION_FLAG_KEY, "1");
-            } catch {
-                // Backend chua san sang, bo qua migration va tiep tuc che do hien tai.
-            }
+            await loadPublicFromBackend();
         }
 
         function normalize(v) {
@@ -671,7 +626,7 @@
         }
 
         function participantCount() {
-            return new Set(items.map(participantKey)).size
+            return publicUniqueParticipants
         }
 
         function uniqueUnitCount(src) {
@@ -826,11 +781,11 @@
             const isLong = item.content.length > 180;
             const text = !isLong || expanded[item.id] ? item.content : item.content.slice(0, 180) + "...";
             return `<article class="card"><div class="badges"><span class="badge">${escapeHtml(item.id)}</span></div><div class="meta">Ngày đăng: ${escapeHtml(item.createdAt)} - Cập nhật: ${escapeHtml(item.updatedAt)}</div><div class="privacy">Người gửi: <b>Đã ẩn</b> - Mã căn: <b>Đã ẩn</b></div><div class="content">${escapeHtml(text)}</div>${isLong?`<button onclick="toggleExpand('${item.id}')">${expanded[item.id]?"Ẩn bớt":"Xem thêm"}</button>`:""}</article>`}
-        function renderOwned(){const name=normalize(document.getElementById("ownerNameInput").value);const unit=normalize(document.getElementById("ownerUnitInput").value);const box=document.getElementById("ownedList");if(!name||!unit){box.innerHTML='<div class="empty">Nhập họ tên và mã căn để tìm góp ý của bạn.</div>';return}const owned=items.filter(i=>normalize(i.name)===name&&i.units.some(c=>normalize(c)===unit));box.innerHTML=owned.map(i=>`<article class="card verified"><div class="meta">Đã xác minh chính chủ - ${escapeHtml(i.id)}</div><textarea id="edit_${escapeHtml(i.id)}">${escapeHtml(i.content)}</textarea><button class="success" onclick="saveEdit('${i.id}')">Lưu chỉnh sửa</button></article>`).join("")||'<div class="empty">Chưa tìm thấy góp ý phù hợp.</div>'}
+        function renderOwned(){const name=normalize(document.getElementById("ownerNameInput").value);const unit=normalize(document.getElementById("ownerUnitInput").value);const box=document.getElementById("ownedList");if(!name||!unit){box.innerHTML='<div class="empty">Nhập họ tên và mã căn để chỉnh sửa góp ý trên DB.</div>';return}box.innerHTML=items.map(i=>`<article class="card verified"><div class="meta">Mã góp ý: ${escapeHtml(i.id)} (máy chủ sẽ xác minh chính chủ khi lưu)</div><textarea id="edit_${escapeHtml(i.id)}">${escapeHtml(i.content)}</textarea><button class="success" onclick="saveEdit('${i.id}')">Lưu chỉnh sửa</button></article>`).join("")||'<div class="empty">Chưa có góp ý trên hệ thống.</div>'}
         function render(){updateAdminVisibility();renderStats();renderPublic();renderOwned()}
         window.goToPage=function(page){currentPage=page;renderPublic()}
         window.toggleExpand=function(id){expanded[id]=!expanded[id];renderPublic()}
-        window.saveEdit=async function(id){const t=document.getElementById("edit_"+id);const nextContent=t?t.value:"";const row=items.find(i=>i.id===id);if(!row){alert("Khong tim thay gop y can sua.");return}if(!String(nextContent||"").trim()){alert("Noi dung gop y khong duoc de trong.");return}try{const r=await fetch(API_BASE+"/api/feedback/"+encodeURIComponent(id),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:row.name,units:row.units||[],content:nextContent})});if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error||"Khong the cap nhat gop y tren he thong ("+r.status+")")}items=items.map(i=>i.id===id?{...i,content:nextContent,updatedAt:formatNow()}:i);saveItems();render();alert("Đã lưu chỉnh sửa.")}catch(err){alert(err.message||"Cap nhat that bai.")}}
+        window.saveEdit=async function(id){const t=document.getElementById("edit_"+id);const nextContent=t?t.value:"";const ownerName=String(document.getElementById("ownerNameInput").value||"").trim();const ownerUnits=String(document.getElementById("ownerUnitInput").value||"").split(",").map(x=>x.trim()).filter(Boolean);if(!String(id||"").trim()){alert("Thiếu mã góp ý.");return}if(!ownerName||ownerUnits.length===0){alert("Vui lòng nhập họ tên và mã căn để xác minh.");return}if(!String(nextContent||"").trim()){alert("Noi dung gop y khong duoc de trong.");return}try{const r=await fetch(API_BASE+"/api/feedback/"+encodeURIComponent(id),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:ownerName,units:ownerUnits,content:nextContent})});if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error||"Khong the cap nhat gop y tren he thong ("+r.status+")")}await loadPublicFromBackend();render();alert("Đã lưu chỉnh sửa.")}catch(err){alert(err.message||"Cap nhat that bai.")}}
         function downloadJson(filename,data){const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url)}
         async function adminApi(path, opts){const r=await fetch(API_BASE+path,{...opts,headers:{Authorization:"Bearer "+adminToken,...((opts&&opts.headers)||{})}});if(!r.ok){throw new Error("Yêu cầu quản trị thất bại ("+r.status+")")}return r.json()}
         async function adminApiRaw(path){const r=await fetch(API_BASE+path,{headers:{Authorization:"Bearer "+adminToken}});if(!r.ok){throw new Error("Yêu cầu thất bại ("+r.status+")")}return r.text()}
@@ -839,7 +794,7 @@
         document.getElementById("adminLoginForm").addEventListener("submit",async e=>{e.preventDefault();const p=document.getElementById("adminPasswordInput").value;try{const r=await fetch(API_BASE+"/api/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:p})});if(!r.ok){throw new Error("Mật khẩu quản trị không đúng hoặc máy chủ chưa chạy.")}const data=await r.json();adminToken=data.token||"";if(!adminToken){throw new Error("Không nhận được token quản trị.")}isAdminUnlocked=true;document.getElementById("adminPasswordInput").value="";switchTab("admin");loadAdminFeedbacks()}catch(err){alert(err.message||"Đăng nhập quản trị thất bại.")}});
         document.getElementById("adminLogout").addEventListener("click",()=>{adminToken="";adminFeedbackData=[];isAdminUnlocked=false;switchTab("public")});
         document.getElementById("adminSearchInput").addEventListener("input",renderAdminTable);
-        document.getElementById("submitForm").addEventListener("submit",async e=>{e.preventDefault();const name=document.getElementById("nameInput").value.trim();const unitsText=document.getElementById("unitsInput").value.trim();const content=document.getElementById("contentInput").value;if(!name||!unitsText||!content.trim()){alert("Vui lòng nhập đầy đủ họ tên, mã căn và nội dung góp ý.");return}const units=unitsText.split(",").map(x=>x.trim()).filter(Boolean);try{const created=await submitFeedbackToBackend({name,units,content});const now=formatNow();items.unshift({id:created.id||("WP-"+String(items.length+1).padStart(4,"0")),name,units,content,createdAt:created.createdAt||now,updatedAt:created.updatedAt||now});saveItems();e.target.reset();currentPage=1;switchTab("public");if(isAdminUnlocked){loadAdminFeedbacks()}}catch(err){alert(err.message||"Không thể gửi góp ý lên hệ thống.")}});
+        document.getElementById("submitForm").addEventListener("submit",async e=>{e.preventDefault();const name=document.getElementById("nameInput").value.trim();const unitsText=document.getElementById("unitsInput").value.trim();const content=document.getElementById("contentInput").value;if(!name||!unitsText||!content.trim()){alert("Vui lòng nhập đầy đủ họ tên, mã căn và nội dung góp ý.");return}const units=unitsText.split(",").map(x=>x.trim()).filter(Boolean);try{await submitFeedbackToBackend({name,units,content});await loadPublicFromBackend();e.target.reset();currentPage=1;switchTab("public");if(isAdminUnlocked){loadAdminFeedbacks()}}catch(err){alert(err.message||"Không thể gửi góp ý lên hệ thống.")}});
         document.getElementById("openReport").addEventListener("click",async()=>{try{const blob=await adminApiBlob("/api/admin/export/report.pdf");const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="waterpoint-bao-cao-gop-y-day-du.pdf";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)}catch(err){alert(err.message||"Không thể tải báo cáo PDF.")}});
         render()}
         init();

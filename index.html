@@ -664,7 +664,7 @@
         }
 
         function isDraftDirty(id, content) {
-            return String(ownedDrafts[id] ? ? content ? ? "") !== String(content ? ? "");
+            return String(ownedDrafts[id] ?? content ?? "") !== String(content ?? "");
         }
 
         function normalize(v) {

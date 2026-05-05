@@ -566,6 +566,8 @@
         let adminToken = "";
         let items = [];
         let ownedItems = [];
+        let ownedDrafts = {};
+        let ownedSaving = {};
         let publicUniqueParticipants = 0;
 
         async function publicApi(path, opts) {
@@ -619,6 +621,7 @@
         }
 
         async function loadOwnedFromBackend() {
+            captureOwnedDrafts();
             const ownerName = String(document.getElementById("ownerNameInput").value || "").trim();
             const ownerUnits = String(document.getElementById("ownerUnitInput").value || "")
                 .split(",")
@@ -639,7 +642,27 @@
                 }),
             });
             ownedItems = Array.isArray(data.items) ? data.items : [];
+            const visibleIds = new Set(ownedItems.map((i) => String(i.id)));
+            Object.keys(ownedDrafts).forEach((id) => {
+                if (!visibleIds.has(id)) delete ownedDrafts[id];
+            });
+            Object.keys(ownedSaving).forEach((id) => {
+                if (!visibleIds.has(id)) delete ownedSaving[id];
+            });
             renderOwned();
+        }
+
+        function captureOwnedDrafts() {
+            ownedItems.forEach((item) => {
+                const id = String(item.id || "");
+                if (!id) return;
+                const el = document.getElementById("edit_" + id);
+                if (el) ownedDrafts[id] = el.value;
+            });
+        }
+
+        function isDraftDirty(id, content) {
+            return String(ownedDrafts[id] ? ? content ? ? "") !== String(content ? ? "");
         }
 
         function normalize(v) {
@@ -806,11 +829,29 @@
             const isLong = item.content.length > 180;
             const text = !isLong || expanded[item.id] ? item.content : item.content.slice(0, 180) + "...";
             return `<article class="card"><div class="badges"><span class="badge">${escapeHtml(item.id)}</span></div><div class="meta">Ngày đăng: ${escapeHtml(item.createdAt)} - Cập nhật: ${escapeHtml(item.updatedAt)}</div><div class="privacy">Người gửi: <b>Đã ẩn</b> - Mã căn: <b>Đã ẩn</b></div><div class="content">${escapeHtml(text)}</div>${isLong?`<button onclick="toggleExpand('${item.id}')">${expanded[item.id]?"Ẩn bớt":"Xem thêm"}</button>`:""}</article>`}
-        function renderOwned(){const name=normalize(document.getElementById("ownerNameInput").value);const unit=normalize(document.getElementById("ownerUnitInput").value);const box=document.getElementById("ownedList");if(!name||!unit){box.innerHTML='<div class="empty">Nhập họ tên và mã căn để tìm góp ý của chính bạn.</div>';return}box.innerHTML=ownedItems.map(i=>`<article class="card verified"><div class="meta">Mã góp ý: ${escapeHtml(i.id)} - Đã xác minh chính chủ theo họ tên + mã căn</div><textarea id="edit_${escapeHtml(i.id)}">${escapeHtml(i.content)}</textarea><button class="success" onclick="saveEdit('${i.id}')">Lưu chỉnh sửa</button></article>`).join("")||'<div class="empty">Không tìm thấy góp ý thuộc thông tin đã nhập.</div>'}
+        function renderOwned(){
+            const name=normalize(document.getElementById("ownerNameInput").value);
+            const unit=normalize(document.getElementById("ownerUnitInput").value);
+            const box=document.getElementById("ownedList");
+            if(!name||!unit){
+                box.innerHTML='<div class="empty">Nhập họ tên và mã căn để tìm góp ý của chính bạn.</div>';
+                return;
+            }
+            box.innerHTML=ownedItems.map(i=>{
+                const id=String(i.id||"");
+                const currentValue=Object.prototype.hasOwnProperty.call(ownedDrafts,id)?ownedDrafts[id]:String(i.content||"");
+                const dirty=isDraftDirty(id,i.content);
+                const saving=!!ownedSaving[id];
+                const status=saving?"Đang lưu...":(dirty?"Chưa lưu thay đổi":"Đã đồng bộ");
+                return `<article class="card verified"><div class="meta">Mã góp ý: ${escapeHtml(i.id)} - Đã xác minh chính chủ theo họ tên + mã căn</div><textarea id="edit_${escapeHtml(i.id)}" rows="5" oninput="onOwnedInput('${escapeHtml(i.id)}', this)">${escapeHtml(currentValue)}</textarea><div class="meta" style="margin-top:8px">${status}</div><button id="save_${escapeHtml(i.id)}" class="success" onclick="saveEdit('${escapeHtml(i.id)}')" ${saving||!dirty?"disabled":""}>${saving?"Đang lưu...":"Lưu thay đổi"}</button></article>`;
+            }).join("")||'<div class="empty">Không tìm thấy góp ý thuộc thông tin đã nhập.</div>';
+        }
         function render(){updateAdminVisibility();renderStats();renderPublic();renderOwned()}
         window.goToPage=function(page){currentPage=page;renderPublic()}
         window.toggleExpand=function(id){expanded[id]=!expanded[id];renderPublic()}
-        window.saveEdit=async function(id){const t=document.getElementById("edit_"+id);const nextContent=t?t.value:"";const ownerName=String(document.getElementById("ownerNameInput").value||"").trim();const ownerUnits=String(document.getElementById("ownerUnitInput").value||"").split(",").map(x=>x.trim()).filter(Boolean);if(!String(id||"").trim()){alert("Thiếu mã góp ý.");return}if(!ownerName||ownerUnits.length===0){alert("Vui lòng nhập họ tên và mã căn để xác minh.");return}if(!String(nextContent||"").trim()){alert("Noi dung gop y khong duoc de trong.");return}try{const r=await fetch(API_BASE+"/api/feedback/"+encodeURIComponent(id),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:ownerName,units:ownerUnits,content:nextContent})});if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error||"Khong the cap nhat gop y tren he thong ("+r.status+")")}await loadPublicFromBackend();await loadOwnedFromBackend();render();alert("Đã lưu chỉnh sửa.")}catch(err){alert(err.message||"Cap nhat that bai.")}}
+        window.onOwnedInput=function(id,textarea){const feedbackId=String(id||"");const value=textarea&&typeof textarea.value==="string"?textarea.value:"";ownedDrafts[feedbackId]=value;const sourceItem=ownedItems.find(item=>String(item.id)===feedbackId);const saveBtn=document.getElementById("save_"+feedbackId);if(saveBtn){const dirty=String(value)!==String((sourceItem&&sourceItem.content)||"");saveBtn.disabled=!dirty||!!ownedSaving[feedbackId]}}
+        window.saveEdit=async function(id){const feedbackId=String(id||"").trim();const nextContent=String(ownedDrafts[feedbackId]??"");const ownerName=String(document.getElementById("ownerNameInput").value||"").trim();const ownerUnits=String(document.getElementById("ownerUnitInput").value||"").split(",").map(x=>x.trim()).filter(Boolean);if(!feedbackId){alert("Thiếu mã góp ý.");return}if(!ownerName||ownerUnits.length===0){alert("Vui lòng nhập họ tên và mã căn để xác minh.");return}if(!nextContent.trim()){alert("Noi dung gop y khong duoc de trong.");return}ownedSaving[feedbackId]=true;renderOwned();try{const r=await fetch(API_BASE+"/api/feedback/"+encodeURIComponent(feedbackId),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:ownerName,units:ownerUnits,content:nextContent})});if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error||"Khong the cap nhat gop y tren he thong ("+r.status+")")}const updated=await r.json().catch(()=>({}));const payload=updated.feedback||updated.item||{};ownedItems=ownedItems.map(item=>String(item.id)===feedbackId?{...item,content:payload.content??nextContent,updatedAt:payload.updatedAt??item.updatedAt}:item);ownedDrafts[feedbackId]=payload.content??nextContent;await loadPublicFromBackend();renderStats();renderPublic();renderOwned();if(isAdminUnlocked){loadAdminFeedbacks()}alert("Đã lưu chỉnh sửa.")}catch(err){alert(err.message||"Cap nhat that bai.")}finally{ownedSaving[feedbackId]=false;renderOwned()}}
+        window.saveEdit=async function(id){const feedbackId=String(id||"").trim();const nextContent=String(ownedDrafts[feedbackId]??"");const ownerName=String(document.getElementById("ownerNameInput").value||"").trim();const ownerUnits=String(document.getElementById("ownerUnitInput").value||"").split(",").map(x=>x.trim()).filter(Boolean);if(!feedbackId){alert("Thiếu mã góp ý.");return}if(!ownerName||ownerUnits.length===0){alert("Vui lòng nhập họ tên và mã căn để xác minh.");return}if(!nextContent.trim()){alert("Noi dung gop y khong duoc de trong.");return}ownedSaving[feedbackId]=true;renderOwned();try{const r=await fetch(API_BASE+"/api/feedback/"+encodeURIComponent(feedbackId),{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:ownerName,units:ownerUnits,content:nextContent})});if(!r.ok){const data=await r.json().catch(()=>({}));throw new Error(data.error||"Khong the cap nhat gop y tren he thong ("+r.status+")")}const updated=await r.json().catch(()=>({}));const payload=updated.feedback||updated.item||{};ownedItems=ownedItems.map(item=>String(item.id)===feedbackId?{...item,content:payload.content??nextContent,updatedAt:payload.updatedAt??item.updatedAt}:item);ownedDrafts[feedbackId]=payload.content??nextContent;await loadPublicFromBackend();renderStats();renderPublic();if(isAdminUnlocked){loadAdminFeedbacks()}alert("Đã lưu chỉnh sửa.")}catch(err){alert(err.message||"Cap nhat that bai.")}finally{ownedSaving[feedbackId]=false;renderOwned()}}
         function downloadJson(filename,data){const blob=new Blob([JSON.stringify(data,null,2)],{type:"application/json;charset=utf-8"});const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download=filename;a.click();URL.revokeObjectURL(url)}
         async function adminApi(path, opts){const r=await fetch(API_BASE+path,{...opts,headers:{Authorization:"Bearer "+adminToken,...((opts&&opts.headers)||{})}});if(!r.ok){throw new Error("Yêu cầu quản trị thất bại ("+r.status+")")}return r.json()}
         async function adminApiRaw(path){const r=await fetch(API_BASE+path,{headers:{Authorization:"Bearer "+adminToken}});if(!r.ok){throw new Error("Yêu cầu thất bại ("+r.status+")")}return r.text()}
@@ -819,7 +860,7 @@
         document.getElementById("adminLoginForm").addEventListener("submit",async e=>{e.preventDefault();const p=document.getElementById("adminPasswordInput").value;try{const r=await fetch(API_BASE+"/api/admin/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:p})});if(!r.ok){throw new Error("Mật khẩu quản trị không đúng hoặc máy chủ chưa chạy.")}const data=await r.json();adminToken=data.token||"";if(!adminToken){throw new Error("Không nhận được token quản trị.")}isAdminUnlocked=true;document.getElementById("adminPasswordInput").value="";switchTab("admin");loadAdminFeedbacks()}catch(err){alert(err.message||"Đăng nhập quản trị thất bại.")}});
         document.getElementById("adminLogout").addEventListener("click",()=>{adminToken="";adminFeedbackData=[];isAdminUnlocked=false;switchTab("public")});
         document.getElementById("adminSearchInput").addEventListener("input",renderAdminTable);
-        document.getElementById("submitForm").addEventListener("submit",async e=>{e.preventDefault();const name=document.getElementById("nameInput").value.trim();const unitsText=document.getElementById("unitsInput").value.trim();const content=document.getElementById("contentInput").value;if(!name||!unitsText||!content.trim()){alert("Vui lòng nhập đầy đủ họ tên, mã căn và nội dung góp ý.");return}const units=unitsText.split(",").map(x=>x.trim()).filter(Boolean);try{await submitFeedbackToBackend({name,units,content});await loadPublicFromBackend();e.target.reset();currentPage=1;switchTab("public");if(isAdminUnlocked){loadAdminFeedbacks()}}catch(err){alert(err.message||"Không thể gửi góp ý lên hệ thống.")}});
+        document.getElementById("submitForm").addEventListener("submit",async e=>{e.preventDefault();const name=document.getElementById("nameInput").value.trim();const unitsText=document.getElementById("unitsInput").value.trim();const content=document.getElementById("contentInput").value;if(!name||!unitsText||!content.trim()){alert("Vui lòng nhập đầy đủ họ tên, mã căn và nội dung góp ý.");return}const submitBtn=e.target.querySelector('button[type="submit"]');const submitOriginalLabel=submitBtn?submitBtn.textContent:"";if(submitBtn){submitBtn.disabled=true;submitBtn.textContent="Đang gửi..."}const units=unitsText.split(",").map(x=>x.trim()).filter(Boolean);try{await submitFeedbackToBackend({name,units,content});await loadPublicFromBackend();e.target.reset();currentPage=1;switchTab("public");if(isAdminUnlocked){loadAdminFeedbacks()}}catch(err){alert(err.message||"Không thể gửi góp ý lên hệ thống.")}finally{if(submitBtn&&submitBtn.isConnected){submitBtn.disabled=false;submitBtn.textContent=submitOriginalLabel||"Gửi góp ý"}}});
         document.getElementById("openReport").addEventListener("click",async()=>{try{const blob=await adminApiBlob("/api/admin/export/report.pdf");const url=URL.createObjectURL(blob);const a=document.createElement("a");a.href=url;a.download="waterpoint-bao-cao-gop-y-day-du.pdf";document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)}catch(err){alert(err.message||"Không thể tải báo cáo PDF.")}});
         render()}
         init();

@@ -63,6 +63,8 @@ const supabase = hasSupabase ?
 
 let inMemorySeq = 0;
 let inMemoryFeedbacks = [];
+let inMemoryFeedbackHistorySeq = 0;
+let inMemoryFeedbackHistory = [];
 
 function nextInMemoryId() {
     inMemorySeq += 1;
@@ -144,6 +146,16 @@ function mapInternalFeedback(row) {
         content: row.content,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+    };
+}
+
+function mapContentHistory(row) {
+    return {
+        id: row.id,
+        feedbackId: row.feedback_id,
+        beforeContent: row.before_content,
+        afterContent: row.after_content,
+        changedAt: row.changed_at,
     };
 }
 
@@ -375,6 +387,17 @@ async function updateFeedbackContent(feedbackId, content) {
         return null;
     }
 
+    if (target.content !== content) {
+        inMemoryFeedbackHistorySeq += 1;
+        inMemoryFeedbackHistory.unshift({
+            id: inMemoryFeedbackHistorySeq,
+            feedback_id: target.id,
+            before_content: target.content,
+            after_content: content,
+            changed_at: nowIso(),
+        });
+    }
+
     target.content = content;
     target.updated_at = nowIso();
 
@@ -384,6 +407,26 @@ async function updateFeedbackContent(feedbackId, content) {
         created_at: target.created_at,
         updated_at: target.updated_at,
     };
+}
+
+async function listFeedbackContentHistory(feedbackId) {
+    if (hasSupabase) {
+        const { data, error } = await supabase
+            .from("feedback_content_history")
+            .select("id, feedback_id, before_content, after_content, changed_at")
+            .eq("feedback_id", feedbackId)
+            .order("changed_at", { ascending: false });
+
+        if (error) {
+            throw error;
+        }
+
+        return data || [];
+    }
+
+    return inMemoryFeedbackHistory
+        .filter((item) => item.feedback_id === feedbackId)
+        .sort((a, b) => Date.parse(b.changed_at) - Date.parse(a.changed_at));
 }
 
 async function listInternalRows() {
@@ -638,6 +681,24 @@ app.get("/api/admin/export/full", requireAdminAuth, adminNoCache, async(_req, re
             totalFeedbacks: rows.length,
             uniqueParticipants: computeUniqueParticipants(rows),
             feedbacks: rows.map(mapInternalFeedback),
+        });
+    } catch (error) {
+        return next(error);
+    }
+});
+
+app.get("/api/admin/feedback/:id/history", requireAdminAuth, adminNoCache, async(req, res, next) => {
+    try {
+        const feedbackId = String(req.params.id || "").trim();
+        if (!feedbackId) {
+            return res.status(400).json({ error: "id is required" });
+        }
+
+        const items = await listFeedbackContentHistory(feedbackId);
+        return res.json({
+            feedbackId,
+            totalChanges: items.length,
+            items: items.map(mapContentHistory),
         });
     } catch (error) {
         return next(error);

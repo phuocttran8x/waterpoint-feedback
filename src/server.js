@@ -75,14 +75,20 @@ function nowIso() {
     return new Date().toISOString();
 }
 
+function removeDiacritics(str) {
+    return String(str || "")
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "");
+}
+
 function normalizeValue(value) {
-    return String(value || "").trim().toLowerCase();
+    return removeDiacritics(String(value || "").trim()).toLowerCase();
 }
 
 function normalizeUnits(units) {
     const unique = new Set();
     for (const item of units) {
-        const unit = String(item || "").trim();
+        const unit = String(item || "").trim().replace(/\s+/g, "");
         if (!unit) {
             continue;
         }
